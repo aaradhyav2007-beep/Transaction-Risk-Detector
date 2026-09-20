@@ -162,8 +162,6 @@ Transaction hour is converted into two cyclical features:
 hour_sin = sin(2π × hour / 24)
 hour_cos = cos(2π × hour / 24)
 This represents the circular nature of time.
-For example:
-23:00 → close to 00:00
 A simple numerical representation of the hour would incorrectly treat these times as far apart.
 The original transaction_hour feature is removed after the transformation.
 Categorical Encoding
@@ -337,41 +335,13 @@ The resulting training curve is stored at:
 results/training_cost.png
 The curve shows a rapid reduction in the initial loss followed by a relatively stable region as optimization progresses.
 This provides a visual check that the optimization process is behaving as expected.
+
 From-Scratch vs Scikit-Learn
 A second Logistic Regression implementation using scikit-learn is included as a reference implementation.
 The purpose is not to replace the from-scratch implementation, but to provide an independent comparison.
 The from-scratch implementation and the scikit-learn implementation produce closely aligned model parameters and evaluation behavior under comparable preprocessing and class-weighting settings.
 This provides a practical validation that the mathematical implementation is behaving consistently with a widely used machine learning library.
-Streamlit Application
-The project includes an interactive Streamlit interface.
-The application provides a dark fintech-style interface for entering transaction information and receiving a model prediction.
-The interface includes:
-Transaction
-- Transaction amount
-- Transaction hour
-- Weekend status
-Account Activity
-- Account age
-- Number of recent transactions
-- Average transaction amount
-Location & Payment
-- Distance from home
-- Foreign transaction status
-- Merchant category
-- Payment method
-Security Signals
-- Failed attempts
-- New device
-- New merchant
-- Card present
-The application displays:
-- Estimated fraud probability
-- Suspicious / normal classification
-- Risk visualization
-- Decision threshold
-- Transaction summary
-- Transaction signals
-The displayed signals describe transaction characteristics and are not presented as model feature-attribution explanations.
+
 Project Structure
 Transaction Risk Detector/
 │
@@ -493,24 +463,6 @@ This project emphasizes several engineering practices alongside model developmen
 
 Limitations
 This project is an educational and portfolio machine learning system rather than a production fraud detection platform.
-
-Important limitations include:
-Dataset Size
-The dataset is relatively small for a real-world financial fraud detection system.
-Feature Availability
-Real fraud detection systems may use substantially more information, including historical behavioral patterns, merchant intelligence, device fingerprints, network signals, and real-time risk signals.
-
-Class Imbalance
-The fraud class remains significantly smaller than the normal class.
-Class weighting improves the model's attention to fraud but does not completely solve the underlying data imbalance.
-False Positives
-
-The current model produces a substantial number of false positives.
-This means that the current threshold should not be interpreted as a production decision rule.
-
-Temporal Validation
-The current experiment uses a stratified random split rather than a time-based evaluation.
-A production system would need to consider temporal drift and evaluate whether a model trained on historical transactions continues to perform on future transactions.
 
 Model Complexity
 Logistic Regression provides an interpretable baseline, but more complex models may capture nonlinear relationships that this model cannot.
