@@ -191,7 +191,6 @@ card_present = st.selectbox(
     format_func=lambda x: "Yes" if x == 1 else "No"
 )
 
-
 # =========================================================
 # PREDICTION
 # =========================================================
@@ -239,7 +238,6 @@ if st.button("Analyze Transaction"):
         ]
     })
 
-
     # -----------------------------------------------------
     # Apply training preprocessing
     # -----------------------------------------------------
@@ -249,7 +247,6 @@ if st.button("Analyze Transaction"):
         feature_columns,
         scaler
     )
-
 
     # -----------------------------------------------------
     # Calculate fraud probability
@@ -264,7 +261,6 @@ if st.button("Analyze Transaction"):
     probability = float(
         probability[0]
     )
-
 
     # -----------------------------------------------------
     # Convert probability into prediction
