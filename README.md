@@ -45,6 +45,11 @@ The project was designed to answer several practical questions:
 7. How can the trained model be integrated into an interactive application?
 
 ---
+<img width="1326" height="492" alt="Screenshot 2026-09-20 at 6 54 38 PM" src="https://github.com/user-attachments/assets/913c6ab8-9f0a-40a0-85c5-915adac5f43c" />
+<img width="1098" height="771" alt="Screenshot 2026-09-20 at 6 50 22 PM" src="https://github.com/user-attachments/assets/3c7ebc56-0432-48fb-b793-29a02f5dc8bb" />
+<img width="1125" height="757" alt="Screenshot 2026-09-20 at 6 51 07 PM" src="https://github.com/user-attachments/assets/773e25b1-360a-4517-b89e-68b0ca41ce65" />
+<img width="1179" height="409" alt="Screenshot 2026-09-20 at 6 56 41 PM" src="https://github.com/user-attachments/assets/1214aea1-5a57-4ded-9e94-b4facbaf9961" />
+
 
 ## System Architecture
 
@@ -394,6 +399,7 @@ Transaction Risk Detector/
 File Responsibilities
 preprocessing.py
 Contains shared preprocessing and feature engineering logic.
+
 Responsibilities include:
 - Feature creation
 - Categorical encoding
@@ -411,13 +417,12 @@ Responsibilities include:
 - Class weighting
 - Probability prediction
 - Threshold selection
-sklearn_model.py
-Contains the scikit-learn reference implementation.
-It is used to compare the custom implementation against a standard library implementation.
+sklearn_model.py(It is used to compare the custom implementation against a standard library implementation.)
 app.py
 Contains the Streamlit application.
 It provides an interactive interface for submitting transaction information and viewing model predictions.
 results/generate_results.py
+
 Reproduces the model evaluation workflow and generates:
 training_cost.png
 confusion_matrix.png
@@ -438,6 +443,7 @@ python3 -m pytest
 Current test suite:
 5 passed
 The tests provide basic automated verification of the model implementation.
+
 Installation
 Clone the repository:
 git clone <YOUR_REPOSITORY_URL>
