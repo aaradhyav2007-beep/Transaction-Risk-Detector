@@ -11,44 +11,57 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 # ---------------------------------------------------------------------------
 df = pd.read_csv("data/transaction_risk_detector_modified.csv")
 
-# Uncomment to inspect class balance
-# df["is_fraud"].value_counts().plot(kind="bar")
-# plt.title("Fraud vs Normal Transaction")
-# plt.xlabel("Transaction type")
-# plt.ylabel("No of Transactions")
-# plt.xticks([0, 1], ["Normal", "Fraud"], rotation=0)
-# plt.show()
-
 df = df.drop("transaction_id", axis=1)
 
 X = df.drop("is_fraud", axis=1)
 y = df["is_fraud"]
 
-# One-hot encode categoricals
-X = pd.get_dummies(X, columns=["merchant_category", "payment_method"], dtype=int)
-
-# -------------------------------------------------
+# =========================================================
 # Feature Engineering
-# -------------------------------------------------
+# =========================================================
 
-# How large is this transaction compared
-# with the customer's recent average?
+# Amount compared with normal transaction amount
 X["amount_ratio"] = (
-    X["transaction_amount"] /
-    X["avg_transaction_amount_30d"].replace(0, np.nan)
+    X["transaction_amount"]
+    / X["avg_transaction_amount_30d"].replace(0, np.nan)
 )
 
 X["amount_ratio"] = X["amount_ratio"].fillna(0)
 
-# Represent hour cyclically
+# Cyclical representation of transaction hour
 X["hour_sin"] = np.sin(
     2 * np.pi * X["transaction_hour"] / 24
 )
+
 X["hour_cos"] = np.cos(
     2 * np.pi * X["transaction_hour"] / 24
 )
-# Original hour is no longer needed
-X = X.drop("transaction_hour", axis=1)
+
+# Remove original hour
+X = X.drop(
+    "transaction_hour",
+    axis=1
+)
+
+# =========================================================
+# One-hot encode categorical features
+# =========================================================
+
+X = pd.get_dummies(
+    X,
+    columns=[
+        "merchant_category",
+        "payment_method"
+    ],
+    dtype=int
+)
+
+
+# =========================================================
+# SAVE FINAL FEATURE COLUMNS
+# =========================================================
+
+feature_columns = X.columns.tolist()
 
 # ---------------------------------------------------------------------------
 # 2. Train/test split
@@ -70,6 +83,7 @@ X_test_scaled = scaler.transform(X_test)
 y_train_np = y_train.to_numpy()
 y_val_np = y_val.to_numpy()
 y_test_np = y_test.to_numpy()
+
 
 EPS = 1e-10  # numerical stability guard for log()
 
@@ -155,82 +169,92 @@ def gradient_descent(X, y, w, b, alpha, num_iters, lambda_):
 # ---------------------------------------------------------------------------
 # 4. Train
 # ---------------------------------------------------------------------------
-alpha = 0.1    
-lambda_ = 0.01
-num_iters = 2000
+def train_from_scratch():
 
-w = np.zeros(X_train_scaled.shape[1])
-b = 0.0
+    alpha = 0.1
+    lambda_ = 0.01
+    num_iters = 2000
 
-sample_weights = np.where(y_train_np == 1,4,1)
-w, b, cost_history = gradient_descent_weighted(
-    X_train_scaled, y_train_np, w, b, alpha, num_iters, lambda_, sample_weights
-)
+    w = np.zeros(X_train_scaled.shape[1])
+    b = 0.0
 
-print("Final cost:", cost_history[-1])
+    sample_weights = np.where(y_train_np == 1, 4, 1)
 
-# ---------------------------------------------------------------------------
-# 5. Evaluate
-# ---------------------------------------------------------------------------
-def predict_probability(X, w, b):
-    return sigmoid(np.dot(X, w) + b)
+    w, b, cost_history = gradient_descent_weighted(
+        X_train_scaled,
+        y_train_np,
+        w,
+        b,
+        alpha,
+        num_iters,
+        lambda_,
+        sample_weights
+    )
+
+    return w, b, cost_history
 
 
-# compute validation probabilities (kept for inspection if needed)
-val_probabilities = predict_probability(
-    X_val_scaled,
-    w,
-    b
-)
+if __name__ == "__main__":
 
-# -------------------------------------------------
-# Final evaluation on untouched test set
-# -------------------------------------------------
-best_threshold = 0.38  # You can adjust this threshold based on your validation results
-test_probabilities = predict_probability(
-    X_test_scaled,
-    w,
-    b
-)
+    w, b, cost_history = train_from_scratch()
 
-final_predictions = (
-    test_probabilities >= best_threshold
-).astype(int)
+    print("Final cost:", cost_history[-1])
 
-cm = confusion_matrix(
-    y_test_np,
-    final_predictions
-)
+    def predict_probability(X, w, b):
+        return sigmoid(np.dot(X, w) + b)
 
-precision = precision_score(
-    y_test_np,
-    final_predictions,
-    zero_division=0
-)
+    val_probabilities = predict_probability(
+        X_val_scaled,
+        w,
+        b
+    )
 
-recall = recall_score(
-    y_test_np,
-    final_predictions,
-    zero_division=0
-)
+    best_threshold = 0.38
 
-f1 = f1_score(
-    y_test_np,
-    final_predictions,
-    zero_division=0
-)
+    test_probabilities = predict_probability(
+        X_test_scaled,
+        w,
+        b
+    )
 
-accuracy = np.mean(
-    final_predictions == y_test_np
-)
+    final_predictions = (
+        test_probabilities >= best_threshold
+    ).astype(int)
 
-print("\nFINAL TEST RESULTS")
-print("-------------------")
-print("Threshold:", best_threshold)
-print("Accuracy:", accuracy)
-print("Precision:", precision)
-print("Recall:", recall)
-print("F1 Score:", f1)
+    cm = confusion_matrix(
+        y_test_np,
+        final_predictions
+    )
 
-print("\nConfusion Matrix:")
-print(cm)
+    precision = precision_score(
+        y_test_np,
+        final_predictions,
+        zero_division=0
+    )
+
+    recall = recall_score(
+        y_test_np,
+        final_predictions,
+        zero_division=0
+    )
+
+    f1 = f1_score(
+        y_test_np,
+        final_predictions,
+        zero_division=0
+    )
+
+    accuracy = np.mean(
+        final_predictions == y_test_np
+    )
+
+    print("\nFINAL TEST RESULTS")
+    print("-------------------")
+    print("Threshold:", best_threshold)
+    print("Accuracy:", accuracy)
+    print("Precision:", precision)
+    print("Recall:", recall)
+    print("F1 Score:", f1)
+
+    print("\nConfusion Matrix:")
+    print(cm)

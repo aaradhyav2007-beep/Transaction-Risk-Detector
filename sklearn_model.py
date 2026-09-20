@@ -2,7 +2,14 @@ import numpy as np
 import pandas as pd    
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
-from app import X_test_scaled, X_train_scaled, X_val_scaled , y_train_np, y_val_np, y_test_np, b, w, alpha, num_iters, lambda_, sample_weights, cost_history
+from from_scratch import (
+    X_test_scaled,
+    X_train_scaled,
+    X_val_scaled,
+    y_train_np,
+    y_val_np,
+    y_test_np
+)
 sklearn_model = LogisticRegression(
     class_weight = {0:1, 1:4},  # Weights for each class
     C = 100,   #strength of regularization, smaller values specify stronger regularization
@@ -90,10 +97,3 @@ print("F1 Score:", sklearn_f1)
 
 print("\nConfusion Matrix:")
 print(sklearn_cm)
-
-print("\nMODEL COMPARISON")
-print("----------------")
-print("From-scratch bias:", b)
-print("Scikit-Learn bias:", sklearn_model.intercept_[0])
-print("From-scratch weights:", w)
-print("Scikit-Learn weights:", sklearn_model.coef_[0])
