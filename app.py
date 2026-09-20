@@ -1,31 +1,74 @@
-import streamlit as st
-import pandas as pd
 import numpy as np
+import pandas as pd
+import streamlit as st
 
 from from_scratch import (
     train_from_scratch,
+    predict_probability,
+    find_best_threshold,
+    X_val_scaled,
+    y_val_np,
     scaler,
-    feature_columns,
+    feature_columns
 )
-# 1. PAGE CONFIGURATION
+
+from preprocessing import preprocess_transaction
+
+# =========================================================
+# PAGE CONFIGURATION
+# =========================================================
 
 st.set_page_config(
     page_title="Transaction Risk Detector",
     layout="centered"
 )
 
-# 2. LOAD TRAINED MODEL
+
+# =========================================================
+# LOAD MODEL
 # =========================================================
 
 @st.cache_resource
 def load_model():
+    """
+    Train and cache the Logistic Regression model.
+    """
+
     w, b, cost_history = train_from_scratch()
-    return w, b, cost_history
+
+    # Select decision threshold using validation data.
+    val_probabilities = predict_probability(
+        X_val_scaled,
+        w,
+        b
+    )
+
+    threshold, validation_f1 = find_best_threshold(
+        y_val_np,
+        val_probabilities
+    )
+
+    return (
+        w,
+        b,
+        cost_history,
+        threshold,
+        validation_f1
+    )
 
 
-w, b, cost_history = load_model()
+(
+    w,
+    b,
+    cost_history,
+    threshold,
+    validation_f1
+) = load_model()
 
-# 3. TITLE
+
+# =========================================================
+# TITLE
+# =========================================================
 
 st.title("Transaction Risk Detector")
 
@@ -36,7 +79,7 @@ st.write(
 
 
 # =========================================================
-# 4. TRANSACTION INPUTS
+# TRANSACTION INPUTS
 # =========================================================
 
 st.header("Transaction Details")
@@ -148,11 +191,16 @@ card_present = st.selectbox(
     format_func=lambda x: "Yes" if x == 1 else "No"
 )
 
-# 5. PREDICTION
+
+# =========================================================
+# PREDICTION
+# =========================================================
 
 if st.button("Analyze Transaction"):
 
-    # Create raw transaction
+    # -----------------------------------------------------
+    # Create transaction DataFrame
+    # -----------------------------------------------------
 
     transaction = pd.DataFrame({
         "transaction_amount": [transaction_amount],
@@ -191,85 +239,45 @@ if st.button("Analyze Transaction"):
         ]
     })
 
-    # Feature Engineering
 
-    # 1. Transaction amount compared with user's average
-    if avg_transaction_amount_30d > 0:
-        transaction["amount_ratio"] = (
-            transaction["transaction_amount"]
-            / transaction["avg_transaction_amount_30d"]
-        )
-    else:
-        transaction["amount_ratio"] = 0
+    # -----------------------------------------------------
+    # Apply training preprocessing
+    # -----------------------------------------------------
 
-
-    # 2. Cyclical representation of transaction hour
-    transaction["hour_sin"] = np.sin(
-        2 * np.pi * transaction["transaction_hour"] / 24
-    )
-
-    transaction["hour_cos"] = np.cos(
-        2 * np.pi * transaction["transaction_hour"] / 24
-    )
-
-    # We no longer need the original hour
-    transaction = transaction.drop(
-        "transaction_hour",
-        axis=1
-    )
-
-    # One-hot encode categorical features
-
-    transaction = pd.get_dummies(
+    transaction_scaled = preprocess_transaction(
         transaction,
-        columns=[
-            "merchant_category",
-            "payment_method"
-        ],
-        dtype=int
+        feature_columns,
+        scaler
     )
-
-    # Make feature columns identical to training data
-
-    for column in feature_columns:
-
-        if column not in transaction.columns:
-            transaction[column] = 0
-
-
-    # Remove any unexpected columns
-    transaction = transaction[feature_columns]
 
 
     # -----------------------------------------------------
-    # Scale using the SAME scaler used during training
+    # Calculate fraud probability
     # -----------------------------------------------------
 
-    transaction_scaled = scaler.transform(
-        transaction
-    )
-
-    # Logistic Regression prediction
-
-    z = np.dot(
+    probability = predict_probability(
         transaction_scaled,
-        w
-    ) + b
-
-    probability = 1 / (
-        1 + np.exp(-z)
+        w,
+        b
     )
 
-    probability = float(probability[0])
+    probability = float(
+        probability[0]
+    )
 
-    # Classification threshold
 
-    threshold = 0.38
+    # -----------------------------------------------------
+    # Convert probability into prediction
+    # -----------------------------------------------------
 
     prediction = int(
         probability >= threshold
     )
-    # 6. DISPLAY RESULTS
+
+
+    # =====================================================
+    # DISPLAY RESULTS
+    # =====================================================
 
     st.divider()
 
@@ -280,6 +288,7 @@ if st.button("Analyze Transaction"):
         "Risk Probability",
         f"{probability * 100:.2f}%"
     )
+
 
     if prediction == 1:
 
@@ -295,5 +304,5 @@ if st.button("Analyze Transaction"):
 
 
     st.write(
-        f"Decision threshold: **{threshold}**"
+        f"Decision threshold: **{threshold:.2f}**"
     )

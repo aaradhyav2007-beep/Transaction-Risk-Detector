@@ -1,207 +1,395 @@
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import confusion_matrix
-from sklearn.metrics import precision_score, recall_score, f1_score
 
-# --------my-------------------------------------------------------------------
-# 1. Load data
-# ---------------------------------------------------------------------------
-df = pd.read_csv("data/transaction_risk_detector_modified.csv")
+from sklearn.metrics import (
+    confusion_matrix,
+    precision_score,
+    recall_score,
+    f1_score
+)
 
-df = df.drop("transaction_id", axis=1)
-
-X = df.drop("is_fraud", axis=1)
-y = df["is_fraud"]
+from preprocessing import prepare_data
 
 # =========================================================
-# Feature Engineering
+# CONFIGURATION
 # =========================================================
 
-# Amount compared with normal transaction amount
-X["amount_ratio"] = (
-    X["transaction_amount"]
-    / X["avg_transaction_amount_30d"].replace(0, np.nan)
-)
+ALPHA = 0.1
+LAMBDA = 0.01
+NUM_ITERS = 2000
+FRAUD_WEIGHT = 4
 
-X["amount_ratio"] = X["amount_ratio"].fillna(0)
-
-# Cyclical representation of transaction hour
-X["hour_sin"] = np.sin(
-    2 * np.pi * X["transaction_hour"] / 24
-)
-
-X["hour_cos"] = np.cos(
-    2 * np.pi * X["transaction_hour"] / 24
-)
-
-# Remove original hour
-X = X.drop(
-    "transaction_hour",
-    axis=1
-)
+EPS = 1e-10
 
 # =========================================================
-# One-hot encode categorical features
+# PREPARE DATA
 # =========================================================
 
-X = pd.get_dummies(
-    X,
-    columns=[
-        "merchant_category",
-        "payment_method"
-    ],
-    dtype=int
-)
+data = prepare_data()
 
+X_train_scaled = data["X_train_scaled"]
+X_val_scaled = data["X_val_scaled"]
+X_test_scaled = data["X_test_scaled"]
+
+y_train_np = data["y_train"]
+y_val_np = data["y_val"]
+y_test_np = data["y_test"]
+
+feature_columns = data["feature_columns"]
+scaler = data["scaler"]
 
 # =========================================================
-# SAVE FINAL FEATURE COLUMNS
+# 1. SIGMOID FUNCTION
 # =========================================================
-
-feature_columns = X.columns.tolist()
-
-# ---------------------------------------------------------------------------
-# 2. Train/test split
-# ---------------------------------------------------------------------------
-X_train, X_temp, y_train, y_temp = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
-)
-X_val, X_test, y_val, y_test = train_test_split(
-    X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp
-)
-# ---------------------------------------------------------------------------
-# 3. Scale (fit only on train -> avoid data leakage)
-# ---------------------------------------------------------------------------
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_val_scaled = scaler.transform(X_val)
-X_test_scaled = scaler.transform(X_test)
-
-y_train_np = y_train.to_numpy()
-y_val_np = y_val.to_numpy()
-y_test_np = y_test.to_numpy()
-
-
-EPS = 1e-10  # numerical stability guard for log()
-
-normal_weight = 1
-fraud_weight = 4
-
-sample_wights = np.where(y_train_np == 1,4,1)
 
 def sigmoid(z):
+    """
+    Convert model scores into probabilities between 0 and 1.
+    """
+
     return 1 / (1 + np.exp(-z))
 
+# =========================================================
+# 2. WEIGHTED COST FUNCTION
+# =========================================================
 
-def compute_cost(X, y, w, b):
-    m = X.shape[0]
-    f_wb = np.clip(sigmoid(np.dot(X, w) + b), EPS, 1 - EPS)
-    cost = -(1 / m) * np.sum(y * np.log(f_wb) + (1 - y) * np.log(1 - f_wb))
-    return cost
+def compute_cost_weighted(
+    X,
+    y,
+    w,
+    b,
+    lambda_,
+    sample_weights
+):
+    """
+    Calculate weighted Logistic Regression cost
+    with L2 regularization.
+    """
 
-def compute_cost_weighted(X,y,w,b,lambda_,sample_weights):
     m = X.shape[0]
-    f_wb = np.clip(sigmoid(np.dot(X,w)+b),EPS,1-EPS)
-    loss = -(y*np.log(f_wb)+(1-y)*np.log(1-f_wb))
+
+    # Model prediction
+    predictions = sigmoid(
+        np.dot(X, w) + b
+    )
+
+    # Prevent log(0)
+    predictions = np.clip(
+        predictions,
+        EPS,
+        1 - EPS
+    )
+
+    # Logistic loss
+    loss = -(
+        y * np.log(predictions)
+        + (1 - y) * np.log(1 - predictions)
+    )
+
+    # Give fraud transactions more importance
     weighted_loss = sample_weights * loss
-    cost = (1/m) * np.sum(weighted_loss)
-    reg_cost = (lambda_ / (2 * m)) * np.sum(w ** 2)
-    return cost + reg_cost
 
-def compute_gradient_weighted(X, y, w, b, lambda_, sample_weights):
+    # Average loss
+    cost = (
+        1 / m
+    ) * np.sum(weighted_loss)
+
+    # L2 regularization
+    regularization = (
+        lambda_ / (2 * m)
+    ) * np.sum(w ** 2)
+
+    return cost + regularization
+
+# =========================================================
+# 3. WEIGHTED GRADIENT
+# =========================================================
+
+def compute_gradient_weighted(
+    X,
+    y,
+    w,
+    b,
+    lambda_,
+    sample_weights
+):
+    """
+    Calculate gradients for weights and bias.
+    """
+
     m = X.shape[0]
-    f_wb = sigmoid(np.dot(X,w)+b)
-    error = f_wb - y
-    weighted_error = sample_weights * error
-    dj_dw = (1 / m) * np.dot(X.T, weighted_error)
-    dj_db = (1 / m) * np.sum(weighted_error)
-    dj_dw = dj_dw + (lambda_ / m) * w  # regularize weights only, not bias
+
+    # Model prediction
+    predictions = sigmoid(
+        np.dot(X, w) + b
+    )
+
+    # Prediction error
+    error = predictions - y
+
+    # Give fraud errors more importance
+    weighted_error = (
+        sample_weights * error
+    )
+
+    # Gradient of weights
+    dj_dw = (
+        1 / m
+    ) * np.dot(
+        X.T,
+        weighted_error
+    )
+
+    # Gradient of bias
+    dj_db = (
+        1 / m
+    ) * np.sum(
+        weighted_error
+    )
+
+    # L2 regularization
+    # Bias is NOT regularized.
+    dj_dw = dj_dw + (
+        lambda_ / m
+    ) * w
+
     return dj_dw, dj_db
 
-def gradient_descent_weighted(X, y, w, b, alpha, num_iters, lambda_, sample_weights):
-    cost_history = []
-    for i in range(num_iters):
-        dj_dw, dj_db = compute_gradient_weighted(X, y, w, b, lambda_, sample_weights)
-        w = w - alpha * dj_dw
-        b = b - alpha * dj_db
-        cost = compute_cost_weighted(X, y, w, b, lambda_, sample_weights)
-        cost_history.append(cost)
-    return w, b, cost_history
+# =========================================================
+# 4. GRADIENT DESCENT
+# =========================================================
 
-def compute_cost_reg(X, y, w, b, lambda_):
-    m = X.shape[0]
-    f_wb = np.clip(sigmoid(np.dot(X, w) + b), EPS, 1 - EPS)
-    cost = -(1 / m) * np.sum(y * np.log(f_wb) + (1 - y) * np.log(1 - f_wb))
-    reg_cost = (lambda_ / (2 * m)) * np.sum(w ** 2)
-    return cost + reg_cost
+def gradient_descent_weighted(
+    X,
+    y,
+    w,
+    b,
+    alpha,
+    num_iters,
+    lambda_,
+    sample_weights
+):
+    """
+    Train Logistic Regression using
+    weighted gradient descent.
+    """
 
-
-def compute_gradient_reg(X, y, w, b, lambda_):
-    m = X.shape[0]
-    f_wb = sigmoid(np.dot(X, w) + b)
-    error = f_wb - y
-
-    dj_dw = (1 / m) * np.dot(X.T, error)
-    dj_db = (1 / m) * np.sum(error)
-
-    dj_dw = dj_dw + (lambda_ / m) * w  # regularize weights only, not bias
-
-    return dj_dw, dj_db
-
-
-def gradient_descent(X, y, w, b, alpha, num_iters, lambda_):
     cost_history = []
 
-    for i in range(num_iters):
-        dj_dw, dj_db = compute_gradient_reg(X, y, w, b, lambda_)
+    for _ in range(num_iters):
 
+        # Calculate gradients
+        dj_dw, dj_db = compute_gradient_weighted(
+            X,
+            y,
+            w,
+            b,
+            lambda_,
+            sample_weights
+        )
+
+        # Update weights
         w = w - alpha * dj_dw
+
+        # Update bias
         b = b - alpha * dj_db
 
-        cost = compute_cost_reg(X, y, w, b, lambda_)
+        # Calculate cost after update
+        cost = compute_cost_weighted(
+            X,
+            y,
+            w,
+            b,
+            lambda_,
+            sample_weights
+        )
+
         cost_history.append(cost)
 
     return w, b, cost_history
 
-# ---------------------------------------------------------------------------
-# 4. Train
-# ---------------------------------------------------------------------------
+# =========================================================
+# 5. TRAIN MODEL FROM SCRATCH
+# =========================================================
+
 def train_from_scratch():
+    """
+    Train the weighted Logistic Regression model.
+    """
 
-    alpha = 0.1
-    lambda_ = 0.01
-    num_iters = 2000
+    # Start with zero weights
+    w = np.zeros(
+        X_train_scaled.shape[1]
+    )
 
-    w = np.zeros(X_train_scaled.shape[1])
+    # Start with zero bias
     b = 0.0
 
-    sample_weights = np.where(y_train_np == 1, 4, 1)
+    # Assign higher weight to fraud transactions
+    sample_weights = np.where(
+        y_train_np == 1,
+        FRAUD_WEIGHT,
+        1
+    )
 
+    # Train using gradient descent
     w, b, cost_history = gradient_descent_weighted(
         X_train_scaled,
         y_train_np,
         w,
         b,
-        alpha,
-        num_iters,
-        lambda_,
+        ALPHA,
+        NUM_ITERS,
+        LAMBDA,
         sample_weights
     )
 
     return w, b, cost_history
 
+# =========================================================
+# 6. PREDICT PROBABILITY
+# =========================================================
+
+def predict_probability(X, w, b):
+    """
+    Return the probability of fraud.
+    """
+
+    return sigmoid(
+        np.dot(X, w) + b
+    )
+
+# =========================================================
+# 7. MAKE CLASS PREDICTIONS
+# =========================================================
+
+def predict(
+    X,
+    w,
+    b,
+    threshold
+):
+    """
+    Convert probabilities into
+    binary predictions.
+    """
+
+    probabilities = predict_probability(
+        X,
+        w,
+        b
+    )
+
+    return (
+        probabilities >= threshold
+    ).astype(int)
+
+# =========================================================
+# 8. FIND BEST THRESHOLD
+# =========================================================
+
+def find_best_threshold(
+    y_true,
+    probabilities
+):
+    """
+    Find the threshold that produces
+    the highest F1 score on validation data.
+    """
+
+    best_threshold = 0.0
+    best_f1 = 0.0
+
+    for threshold in np.arange(
+        0.10,
+        0.90,
+        0.01
+    ):
+
+        predictions = (
+            probabilities >= threshold
+        ).astype(int)
+
+        f1 = f1_score(
+            y_true,
+            predictions,
+            zero_division=0
+        )
+
+        if f1 > best_f1:
+
+            best_f1 = f1
+            best_threshold = threshold
+
+    return best_threshold, best_f1
+
+# =========================================================
+# 9. EVALUATE MODEL
+# =========================================================
+
+def evaluate_model(
+    y_true,
+    predictions
+):
+    """
+    Calculate classification metrics.
+    """
+
+    confusion = confusion_matrix(
+        y_true,
+        predictions
+    )
+
+    precision = precision_score(
+        y_true,
+        predictions,
+        zero_division=0
+    )
+
+    recall = recall_score(
+        y_true,
+        predictions,
+        zero_division=0
+    )
+
+    f1 = f1_score(
+        y_true,
+        predictions,
+        zero_division=0
+    )
+
+    accuracy = np.mean(
+        predictions == y_true
+    )
+
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "confusion_matrix": confusion
+    }
+
+# =========================================================
+# 10. TRAIN AND EVALUATE
+# =========================================================
 
 if __name__ == "__main__":
 
+    # -----------------------------------------------------
+    # Train
+    # -----------------------------------------------------
+
     w, b, cost_history = train_from_scratch()
 
-    print("Final cost:", cost_history[-1])
+    print(
+        "Final cost:",
+        cost_history[-1]
+    )
 
-    def predict_probability(X, w, b):
-        return sigmoid(np.dot(X, w) + b)
+
+    # -----------------------------------------------------
+    # Find threshold using validation data
+    # -----------------------------------------------------
 
     val_probabilities = predict_probability(
         X_val_scaled,
@@ -209,52 +397,74 @@ if __name__ == "__main__":
         b
     )
 
-    best_threshold = 0.38
+    best_threshold, validation_f1 = find_best_threshold(
+        y_val_np,
+        val_probabilities
+    )
 
-    test_probabilities = predict_probability(
+    print("\nVALIDATION RESULTS")
+    print("-------------------")
+
+    print(
+        "Best threshold:",
+        best_threshold
+    )
+
+    print(
+        "Validation F1:",
+        validation_f1
+    )
+
+    # -----------------------------------------------------
+    # Final evaluation on test data
+    # -----------------------------------------------------
+
+    test_predictions = predict(
         X_test_scaled,
         w,
-        b
+        b,
+        best_threshold
     )
 
-    final_predictions = (
-        test_probabilities >= best_threshold
-    ).astype(int)
-
-    cm = confusion_matrix(
+    results = evaluate_model(
         y_test_np,
-        final_predictions
+        test_predictions
     )
 
-    precision = precision_score(
-        y_test_np,
-        final_predictions,
-        zero_division=0
-    )
-
-    recall = recall_score(
-        y_test_np,
-        final_predictions,
-        zero_division=0
-    )
-
-    f1 = f1_score(
-        y_test_np,
-        final_predictions,
-        zero_division=0
-    )
-
-    accuracy = np.mean(
-        final_predictions == y_test_np
-    )
+    # -----------------------------------------------------
+    # Display results
+    # -----------------------------------------------------
 
     print("\nFINAL TEST RESULTS")
     print("-------------------")
-    print("Threshold:", best_threshold)
-    print("Accuracy:", accuracy)
-    print("Precision:", precision)
-    print("Recall:", recall)
-    print("F1 Score:", f1)
+
+    print(
+        "Threshold:",
+        best_threshold
+    )
+
+    print(
+        "Accuracy:",
+        results["accuracy"]
+    )
+
+    print(
+        "Precision:",
+        results["precision"]
+    )
+
+    print(
+        "Recall:",
+        results["recall"]
+    )
+
+    print(
+        "F1 Score:",
+        results["f1"]
+    )
 
     print("\nConfusion Matrix:")
-    print(cm)
+
+    print(
+        results["confusion_matrix"]
+    )

@@ -1,99 +1,187 @@
 import numpy as np
-import pandas as pd    
+
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
-from from_scratch import (
-    X_test_scaled,
-    X_train_scaled,
-    X_val_scaled,
-    y_train_np,
-    y_val_np,
-    y_test_np
+from sklearn.metrics import (
+    confusion_matrix,
+    precision_score,
+    recall_score,
+    f1_score
 )
+from preprocessing import prepare_data
+
+data = prepare_data()
+
+X_train_scaled = data["X_train_scaled"]
+X_val_scaled = data["X_val_scaled"]
+X_test_scaled = data["X_test_scaled"]
+
+y_train_np = data["y_train"]
+y_val_np = data["y_val"]
+y_test_np = data["y_test"]
+
+feature_columns = data["feature_columns"]
+scaler = data["scaler"]
+
+# =========================================================
+# CONFIGURATION
+# =========================================================
+
+FRAUD_WEIGHT = 4
+REGULARIZATION_C = 100
+MAX_ITER = 2000
+
+# =========================================================
+# 1. CREATE SCIKIT-LEARN MODEL
+# =========================================================
+
 sklearn_model = LogisticRegression(
-    class_weight = {0:1, 1:4},  # Weights for each class
-    C = 100,   #strength of regularization, smaller values specify stronger regularization
-    max_iter = 2000,
-    random_state = 42
+    class_weight={
+        0: 1,
+        1: FRAUD_WEIGHT
+    },
+    C=REGULARIZATION_C,
+    max_iter=MAX_ITER,
+    random_state=42
 )
-sklearn_model.fit(X_train_scaled, y_train_np)
-sklearn_val_probabilities = sklearn_model.predict_proba(X_val_scaled)[:,1]
 
-best_sklearn_threshold = 0
-best_sklearn_f1 = 0
+# =========================================================
+# 2. TRAIN MODEL
+# =========================================================
 
-# Find the best threshold using validation data
-for threshold in np.arange(0.1, 0.9, 0.01):
+sklearn_model.fit(
+    X_train_scaled,
+    y_train_np
+)
 
-    val_predictions = (
+# =========================================================
+# 3. VALIDATION PREDICTIONS
+# =========================================================
+
+sklearn_val_probabilities = (
+    sklearn_model
+    .predict_proba(X_val_scaled)[:, 1]
+)
+
+# =========================================================
+# 4. SELECT DECISION THRESHOLD
+# =========================================================
+
+best_threshold = 0.0
+best_validation_f1 = 0.0
+
+for threshold in np.arange(
+    0.10,
+    0.90,
+    0.01
+):
+
+    validation_predictions = (
         sklearn_val_probabilities >= threshold
     ).astype(int)
 
-    f1 = f1_score(
+    validation_f1 = f1_score(
         y_val_np,
-        val_predictions,
+        validation_predictions,
         zero_division=0
     )
 
-    if f1 > best_sklearn_f1:
-        best_sklearn_f1 = f1
-        best_sklearn_threshold = threshold
+    if validation_f1 > best_validation_f1:
+
+        best_validation_f1 = validation_f1
+        best_threshold = threshold
 
 
 print("\nSCIKIT-LEARN")
 print("----------------")
-print("Best validation threshold:", best_sklearn_threshold)
-print("Validation F1:", best_sklearn_f1)
 
+print(
+    "Best validation threshold:",
+    best_threshold
+)
 
-# -------------------------------------------------
-# Final evaluation on TEST data
-# -------------------------------------------------
+print(
+    "Validation F1:",
+    best_validation_f1
+)
 
-sklearn_test_probabilities = sklearn_model.predict_proba(
-    X_test_scaled
-)[:, 1]
+# =========================================================
+# 5. FINAL TEST PREDICTIONS
+# =========================================================
 
-sklearn_final_predictions = (
-    sklearn_test_probabilities >= best_sklearn_threshold
+sklearn_test_probabilities = (
+    sklearn_model
+    .predict_proba(X_test_scaled)[:, 1]
+)
+
+sklearn_test_predictions = (
+    sklearn_test_probabilities >= best_threshold
 ).astype(int)
 
+# =========================================================
+# 6. EVALUATION
+# =========================================================
 
 sklearn_precision = precision_score(
     y_test_np,
-    sklearn_final_predictions,
+    sklearn_test_predictions,
     zero_division=0
 )
 
 sklearn_recall = recall_score(
     y_test_np,
-    sklearn_final_predictions,
+    sklearn_test_predictions,
     zero_division=0
 )
 
 sklearn_f1 = f1_score(
     y_test_np,
-    sklearn_final_predictions,
+    sklearn_test_predictions,
     zero_division=0
 )
 
 sklearn_accuracy = np.mean(
-    sklearn_final_predictions == y_test_np
+    sklearn_test_predictions == y_test_np
 )
 
 sklearn_cm = confusion_matrix(
     y_test_np,
-    sklearn_final_predictions
+    sklearn_test_predictions
 )
 
+# =========================================================
+# 7. DISPLAY FINAL RESULTS
+# =========================================================
 
 print("\nFINAL SCIKIT-LEARN TEST RESULTS")
 print("--------------------------------")
-print("Threshold:", best_sklearn_threshold)
-print("Accuracy:", sklearn_accuracy)
-print("Precision:", sklearn_precision)
-print("Recall:", sklearn_recall)
-print("F1 Score:", sklearn_f1)
+
+print(
+    "Threshold:",
+    best_threshold
+)
+
+print(
+    "Accuracy:",
+    sklearn_accuracy
+)
+
+print(
+    "Precision:",
+    sklearn_precision
+)
+
+print(
+    "Recall:",
+    sklearn_recall
+)
+
+print(
+    "F1 Score:",
+    sklearn_f1
+)
 
 print("\nConfusion Matrix:")
-print(sklearn_cm)
+
+print(
+    sklearn_cm
+)
